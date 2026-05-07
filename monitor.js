@@ -65,35 +65,27 @@ function salvarEstado(estado) {
 }
 
 function extrairDados(html, id) {
-  // Extrai campos da página de detalhe da ALEPA
+  // Estrutura real: <p>Label: Valor</p>
   const extrair = (label) => {
-    const regex = new RegExp(`${label}:\\s*</strong>\\s*([^<]+)`, 'i');
+    const regex = new RegExp(`<p>${label}:\\s*([^<]+)</p>`, 'i');
     const match = html.match(regex);
     return match ? match[1].trim() : '-';
   };
 
-  // Tipo e número do breadcrumb: "INDICAÇÃO Nº 27/2026"
-  const breadcrumb = html.match(/Proposições\s*\/\s*([^<"]+)/i);
-  const tituloBreadcrumb = breadcrumb ? breadcrumb[1].trim() : '';
-
-  // Tipo de Proposição
-  let tipo = extrair('Tipo de Proposição');
-  if (tipo === '-' && tituloBreadcrumb) {
-    tipo = tituloBreadcrumb.split(/\s+N[ºo°]/i)[0].trim();
-  }
-
-  // Número e Ano
-  let numero = extrair('Número');
-  let ano = '-';
-  const numAnoMatch = tituloBreadcrumb.match(/N[ºo°]\s*(\d+)\/(\d{4})/i);
-  if (numAnoMatch) {
-    numero = numAnoMatch[1];
-    ano = numAnoMatch[2];
-  }
-
+  const tipo = extrair('Tipo de Proposição');
+  const numero = extrair('Número');
   const autor = extrair('Autor');
   const data = extrair('Data da Entrada');
   const ementa = extrair('Ementa');
+
+  // Ano do breadcrumb: "PROJETO DE LEI ORDINÁRIA Nº 1/2026"
+  let ano = '-';
+  const anoMatch = html.match(/N[º°o]\s*\d+\/(\d{4})/i);
+  if (anoMatch) ano = anoMatch[1];
+
+  // URL do PDF se disponível
+  const pdfMatch = html.match(/href="(https:\/\/downloads\.alepa\.pa\.gov\.br\/Projeto\/\d+\.PDF)"/i);
+  const pdf = pdfMatch ? pdfMatch[1] : null;
 
   return {
     id: String(id),
@@ -104,6 +96,7 @@ function extrairDados(html, id) {
     data,
     ementa: ementa.length > 300 ? ementa.substring(0, 300) + '…' : ementa,
     link: `${BASE_URL}?IdProposicao=${id}`,
+    pdf,
   };
 }
 
@@ -186,9 +179,13 @@ async function enviarEmail(novas) {
       .map(p => {
         const abrev = ABREV_TIPO[p.tipo] || p.tipo;
         const linkTexto = `${abrev} ${p.numero}/${p.ano}`;
+        const linkHref = p.pdf || p.link;
+        const linkExtra = p.pdf
+          ? ` <a href="${p.link}" style="color:#888;font-size:10px" target="_blank">[página]</a>`
+          : '';
         return `<tr>
           <td style="padding:8px;border-bottom:1px solid #eee;white-space:nowrap">
-            <strong><a href="${p.link}" style="color:#1a3a5c;text-decoration:none" target="_blank">${linkTexto}</a></strong>
+            <strong><a href="${linkHref}" style="color:#1a3a5c;text-decoration:none" target="_blank">${linkTexto}</a></strong>${linkExtra}
           </td>
           <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${p.autor}</td>
           <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap">${p.data}</td>
