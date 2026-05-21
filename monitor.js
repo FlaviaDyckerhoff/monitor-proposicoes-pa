@@ -205,7 +205,7 @@ async function enviarEmail(novas) {
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:960px;margin:0 auto">
       <h2 style="color:#1a3a5c;border-bottom:3px solid #1a3a5c;padding-bottom:8px">
-        🏛️ ALEPA — ${novas.length} nova(s) proposição(ões)
+        🏛️ Assembleia Legislativa do Pará — ${novas.length} nova(s) proposição(ões)
       </h2>
       <p style="color:#666;margin-top:0">${new Date().toLocaleString('pt-BR', { timeZone: 'America/Belem' })} (horário de Belém)</p>
       <div style="background:#f8f9fa;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:13px">
@@ -234,9 +234,9 @@ async function enviarEmail(novas) {
     .join(' ');
 
   await transporter.sendMail({
-    from: `"Monitor ALEPA" <${EMAIL_REMETENTE}>`,
+    from: `"Monitor Pará" <${EMAIL_REMETENTE}>`,
     to: EMAIL_DESTINO,
-    subject: `🏛️ ALEPA: ${novas.length} nova(s) proposição(ões) — ${resumoAssunto} — ${new Date().toLocaleDateString('pt-BR')}`,
+    subject: `🏛️ Pará: ${novas.length} nova(s) proposição(ões) — ${resumoAssunto} — ${new Date().toLocaleDateString('pt-BR')}`,
     html,
   });
 
