@@ -1,10 +1,11 @@
 {
-  "ultimo_id_visto": 16070,
-  "ultima_execucao": "2026-06-07T12:00:22.038Z",
+  "ultimo_id_visto": 16071,
+  "ultima_execucao": "2026-06-08T14:20:03.278Z",
   "ultimos_por_tipo_ano": {
     "PROJETO DE LEI ORDINÁRIA|2026": 444,
     "PROJETO DE DECRETO LEGISLATIVO|2026": 29,
     "INDICAÇÃO|2026": 56,
-    "PROCESSO|2026": 11
+    "PROCESSO|2026": 11,
+    "ATO DA PRESIDÊNCIA|2026": 2
   }
 }
