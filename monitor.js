@@ -150,7 +150,7 @@ function extrairDados(html, id) {
     ano,
     autor: autor.length > 50 ? autor.substring(0, 50) + '…' : autor,
     data,
-    ementa: ementa.length > 300 ? ementa.substring(0, 300) + '…' : ementa,
+    ementa: ementa.replace(/\s+/g, ' ').trim() || '-',
     link: `${BASE_URL}?IdProposicao=${id}`,
     pdf,
   };
