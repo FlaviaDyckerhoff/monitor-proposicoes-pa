@@ -1,12 +1,13 @@
 {
-  "ultimo_id_visto": 16095,
-  "ultima_execucao": "2026-06-12T13:38:28.177Z",
+  "ultimo_id_visto": 16098,
+  "ultima_execucao": "2026-06-13T12:02:08.810Z",
   "ultimos_por_tipo_ano": {
-    "PROJETO DE LEI ORDINÁRIA|2026": 458,
+    "PROJETO DE LEI ORDINÁRIA|2026": 460,
     "PROJETO DE DECRETO LEGISLATIVO|2026": 36,
     "INDICAÇÃO|2026": 57,
     "PROCESSO|2026": 11,
     "ATO DA PRESIDÊNCIA|2026": 2,
-    "PROJETO DE EMENDA CONSTITUCIONAL|2026": 6
+    "PROJETO DE EMENDA CONSTITUCIONAL|2026": 6,
+    "PROJETO DE LEI COMPLEMENTAR|2026": 7
   }
 }
