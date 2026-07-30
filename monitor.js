@@ -3,6 +3,7 @@ const fs = require('fs');
 const EMAIL_DESTINO = process.env.EMAIL_DESTINO;
 const EMAIL_REMETENTE = process.env.EMAIL_REMETENTE;
 const EMAIL_SENHA = process.env.EMAIL_SENHA;
+const CONTROLE03_FORCE_LATEST = String(process.env.CONTROLE03_FORCE_LATEST || '').trim() === '1';
 const ARQUIVO_ESTADO = 'estado.json';
 const RADAR03_URL = process.env.RADAR03_URL || 'https://doe.monitorlegislativo.com.br/controle03/';
 const CASA_RADAR03 = process.env.CASA_RADAR03 || 'ALEPA';
@@ -350,17 +351,11 @@ function radar03NumeroPartes(p) {
 
 
 function radar03BlocoEmail(novas) {
-  const seen = new Set();
-  return (novas || []).map(p => {
-    const tipo = String(p?.tipo ?? p?.sigla ?? p?.rotulo ?? '').trim();
-    const numero = radar03Numero(p);
-    if (!tipo || !numero) return '';
-    const row = `${tipo} ${numero}`;
-    const key = row.toUpperCase();
-    if (seen.has(key)) return '';
-    seen.add(key);
-    return row;
-  }).filter(Boolean).join(' | ');
+  return radar03AgruparNovidades(novas)
+    .flatMap(item => item.itens && item.itens.length ? item.itens : [item])
+    .sort((a, b) => a.tipo.localeCompare(b.tipo) || a.numeroInt - b.numeroInt)
+    .map(item => item.tipo + ' ' + item.numero + (item.ano ? '/' + item.ano : ''))
+    .join(' | ');
 }
 
 function radar03PrimeiraFonte(novas) {
@@ -377,11 +372,12 @@ function radar03TipoControle(tipo) {
     .replace(/\s+/g, ' ')
     .trim();
   const mapa = {
-    'PROJETO DE LEI': 'PL', 'PL': 'PL',
-    'PROJETO DE LEI COMPLEMENTAR': 'PLC', 'PLC': 'PLC',
-    'PROPOSTA DE EMENDA A CONSTITUICAO': 'PEC', 'PEC': 'PEC',
+    'PROJETO DE LEI': 'PL', 'PROJETO LEI': 'PL', 'PROJETO DE LEI ORDINARIA': 'PL', 'PLO': 'PL', 'PL': 'PL', 'PL - PROJETO DE LEI': 'PL', 'PL PROJETO DE LEI': 'PL',
+    'PROJETO DE LEI COMPLEMENTAR': 'PLC', 'PLC': 'PLC', 'PLC - PROJETO DE LEI COMPLEMENTAR': 'PLC', 'PLC PROJETO DE LEI COMPLEMENTAR': 'PLC',
+    'PROPOSTA DE EMENDA A CONSTITUICAO': 'PEC', 'PEC': 'PEC', 'PEC - PROPOSTA DE EMENDA CONSTITUCIONAL': 'PEC', 'PEC PROPOSTA DE EMENDA CONSTITUCIONAL': 'PEC',
     'PROJETO DE DECRETO LEGISLATIVO': 'PDL', 'PDL': 'PDL',
     'PROJETO DE RESOLUCAO': 'PR', 'PR': 'PR',
+    'PROJETO DE INDICACAO': 'PIL', 'PIL': 'PIL', 'PIL - PROJETO DE INDICACAO': 'PIL', 'PIL PROJETO DE INDICACAO': 'PIL',
     'INDICACAO': 'IND', 'MOCAO': 'MOC', 'REQUERIMENTO': 'REQ', 'REQ.': 'REQ',
     'REQUERIMENTO DE INFORMACAO': 'REQINF', 'RI': 'REQINF', 'VETO': 'VETO',
   };
@@ -473,13 +469,18 @@ async function sincronizarRadar03(novas) {
         return Math.max(max, n);
       }, 0);
 
-      detalhes.forEach(det => {
+      const detalhesReais = rec.itens && rec.itens.length ? rec.itens : detalhes;
+      const permiteFallbackTipo = detalhesReais.length === 1;
+      detalhesReais.forEach(det => {
         let item = casa.items.find(i =>
           (det.id && i?.radar03Id === det.id) ||
           (radar03TipoControle(i?.tipo || '') === det.tipo &&
             Number.parseInt(String(i?.mon || 0), 10) === det.numeroInt &&
             String(i?.link || '') === String(det.link || ''))
         );
+        if (!item && permiteFallbackTipo) {
+          item = casa.items.find(i => radar03TipoControle(i?.tipo || '') === det.tipo);
+        }
         if (!item) {
           item = { tipo: det.tipo, base: baseAtual, mon: det.numeroInt, radar03Id: det.id || '' };
           casa.items.push(item);
@@ -498,6 +499,7 @@ async function sincronizarRadar03(novas) {
         item.clienteCitadoNomes = det.clienteCitadoNomes || item.clienteCitadoNomes || item.clienteSugestao || '';
         item.radar03Id = det.id || item.radar03Id || '';
         item.listaReal03 = true;
+        item.detalheIndividual03 = true;
       });
     });
 
@@ -532,6 +534,16 @@ function radar03ReviewUrl(novas) {
   return `${RADAR03_URL}?${params.toString()}`;
 }
 
+
+function radar03SemNovidadeUrl() {
+  const params = new URLSearchParams({
+    casa: CASA_RADAR03,
+    situacao: 'sem_novidade',
+    fonte: 'monitor-proposicoes',
+  });
+  return RADAR03_URL + '?' + params.toString();
+}
+
 function radar03Escape(valor) {
   return String(valor ?? '')
     .replace(/&/g, '&amp;')
@@ -541,9 +553,14 @@ function radar03Escape(valor) {
     .replace(/'/g, '&#39;');
 }
 
+
+function renderRadar03SemNovidadeEmailButton() {
+  return '\n    <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:12px 14px;margin:14px 0;color:#334155;font-size:13px">\n      <div style="font-weight:bold;margin-bottom:6px">Radar 03 | Sem novidades</div>\n      <div style="margin-bottom:9px;color:#475569">' + radar03Escape(CASA_RADAR03) + ' · fonte vista sem proposição nova nesta rodada</div>\n      <a href="' + radar03Escape(radar03SemNovidadeUrl()) + '" style="display:inline-block;background:#475569;color:white;text-decoration:none;border-radius:4px;padding:8px 11px;font-size:12px;font-weight:bold">Marcar sem novidade na 03</a>\n      <span style="font-size:12px;color:#64748b;margin-left:8px">abre a 03 pronta para fechar o dia</span>\n    </div>\n  ';
+}
+
 function renderRadar03EmailButton(novas) {
   const bloco = radar03BlocoEmail(novas);
-  if (!bloco) return '';
+  if (!bloco) return renderRadar03SemNovidadeEmailButton();
   return `
     <div style="background:#ecfdf3;border:1px solid #bbf7d0;border-radius:6px;padding:12px 14px;margin:14px 0;color:#14532d;font-size:13px">
       <div style="font-weight:bold;margin-bottom:6px">Radar 03 | Novas Proposições</div>
@@ -556,6 +573,11 @@ function renderRadar03EmailButton(novas) {
 
 
 async function enviarEmail(novas, alertas = []) {
+  if (CONTROLE03_FORCE_LATEST) {
+    console.log('📌 Modo Controle 03: email de novidades não enviado.');
+    return;
+  }
+
   anotarClientesCitados(novas);
   if (process.env.DRY_RUN_EMAIL === '1') {
     console.log(`[DRY_RUN_EMAIL] ${novas.length} proposições novas.`);
@@ -753,6 +775,7 @@ async function enviarEmail(novas, alertas = []) {
     }
 
     if (paraEmail.length > 0 || alertas.length > 0) {
+      await sincronizarRadar03(paraEmail);
       await enviarEmail(paraEmail, alertas);
     } else {
       console.log('ℹ️ Nenhuma proposição dos tipos monitorados. Email não enviado.');
