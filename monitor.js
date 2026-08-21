@@ -1,3 +1,13 @@
+const FICHA_URL = process.env.FICHA_URL || 'https://doe.monitorlegislativo.com.br/ficha';
+
+function fichaEmailButtonHtml() {
+  return '<div style="background:#eef6ff;border:1px solid #c7ddf2;border-radius:6px;padding:11px 13px;margin:12px 0;color:#173d63;font-size:13px;line-height:1.45">' +
+    '<strong>Ficha</strong><br>' +
+    '<span>Cole o link oficial de uma proposição para criar ficha e acelerar a revisão/cadastro.</span><br>' +
+    '<a href="' + FICHA_URL + '" style="display:inline-block;background:#0f3d5c;color:white;text-decoration:none;border-radius:4px;padding:8px 11px;font-weight:bold;margin-top:8px">Criar ficha</a>' +
+    '</div>';
+}
+
 const fs = require('fs');
 
 const EMAIL_DESTINO = process.env.EMAIL_DESTINO;
@@ -10,6 +20,7 @@ const CASA_RADAR03 = process.env.CASA_RADAR03 || 'ALEPA';
 const CONTROLE03_STATE_URL = process.env.CONTROLE03_STATE_URL || new URL('api/state', RADAR03_URL).toString();
 const CONTROLE03_API_USER = process.env.CONTROLE03_API_USER || '';
 const CONTROLE03_API_PASS = process.env.CONTROLE03_API_PASS || '';
+const REQUEST_TIMEOUT_MS = CONTROLE03_FORCE_LATEST ? 5000 : 15000;
 const CONTROLE03_BASIC_AUTH = process.env.CONTROLE03_BASIC_AUTH || '';
 
 const BASE_URL = 'https://alepa.pa.gov.br/Legislativo/DetalhesProposicao';
@@ -173,7 +184,7 @@ async function buscarProposicao(id) {
         'User-Agent': 'Mozilla/5.0 (compatible; Monitor-ALEPA/1.0)',
         'Accept': 'text/html',
       },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
     console.error(`   ⚠️ Timeout/erro de conexão no ID ${id}: ${err.message}`);
@@ -235,7 +246,7 @@ const CLIENTES_NOMES_PROPRIOS = [
   'Wild Fork', 'Ajinomoto', 'Vibra', 'Vibra Energia',
   'BR Distribuidora', 'Raízen', 'Raizen', 'Mindlab',
   'ABVTEX', 'Semove', 'Barcas', 'Seta',
-  'Nova Infra', 'BRT'
+  'Nova Infra'
 ];
 
 const CLIENTES_INATIVOS_NAO_DESTACAR = [
@@ -261,7 +272,7 @@ function clientesCitadosNaProposicao(p) {
     const re = new RegExp('(^|[^A-Za-zÀ-ÿ0-9])' + escaped + '([^A-Za-zÀ-ÿ0-9]|$)', 'i');
     if (re.test(texto) && !achados.some(a => a.toLowerCase() === nome.toLowerCase())) achados.push(nome);
   }
-  return achados;
+  return promoverInteresseClienteProposicao(p, achados, mlClientInterestContext());
 }
 
 function anotarClientesCitados(proposicoes) {
@@ -456,9 +467,9 @@ function radar03AgruparNovidades(novas) {
   });
 }
 
-async function sincronizarRadar03(novas) {
+async function sincronizarRadar03(novas, opts = {}) {
   const resumo = radar03AgruparNovidades(novas);
-  if (!resumo.length) return;
+  if (!resumo.length) return false;
   try {
     const getResp = await fetch(CONTROLE03_STATE_URL, { headers: radar03AuthHeaders() });
     if (!getResp.ok) throw new Error('GET ' + getResp.status);
@@ -476,7 +487,7 @@ async function sincronizarRadar03(novas) {
     while (casa.week.length < 5) casa.week.push('off');
 
     resumo.forEach(rec => {
-      const detalhes = rec.itens && rec.itens.length ? rec.itens : [rec];
+      const detalhes = opts.onlyLatest ? [rec] : (rec.itens && rec.itens.length ? rec.itens : [rec]);
       const existentesTipo = casa.items.filter(i => radar03TipoControle(i?.tipo || '') === rec.tipo);
       const baseAtual = existentesTipo.reduce((max, i) => {
         const n = Number.parseInt(String(i?.base || i?.mon || 0), 10) || 0;
@@ -530,12 +541,17 @@ async function sincronizarRadar03(novas) {
     });
 
     const postResp = await fetch(CONTROLE03_STATE_URL, {
-      method: 'POST', headers: radar03AuthHeaders(), body: JSON.stringify({ data, merge_casas: [CASA_RADAR03] }),
+      method: 'POST', headers: radar03AuthHeaders(), body: JSON.stringify({ data, expected_updated_at: state.updated_at || null, merge_casas: [CASA_RADAR03] }),
     });
-    if (!postResp.ok) throw new Error('POST ' + postResp.status);
+    if (!postResp.ok) {
+      const body = await postResp.text().catch(() => '');
+      throw new Error('POST ' + postResp.status + (body ? ': ' + body.slice(0, 300) : ''));
+    }
     console.log('✅ Radar 03 sincronizado: ' + CASA_RADAR03 + ' · ' + resumo.map(item => item.tipo + ' ' + item.numero + '/' + item.ano).join(' | '));
+    return true;
   } catch (err) {
     console.warn('⚠️ Não foi possível sincronizar o Radar 03 automaticamente: ' + err.message);
+    return false;
   }
 }
 
@@ -599,6 +615,25 @@ async function enviarEmail(novas, alertas = []) {
     return;
   }
   const nodemailer = require('nodemailer');
+let promoverInteresseClienteProposicao = (_item, atuais) => Array.isArray(atuais) ? atuais : [];
+try {
+  try {
+    ({ promoverInteresseClienteProposicao } = require('./client_interest_matcher_js'));
+  } catch (_localErr) {
+    ({ promoverInteresseClienteProposicao } = require('../../agents/pautas/client_interest_matcher_js'));
+  }
+} catch (err) {
+  console.warn('⚠️ Matcher cliente/palavra comum indisponível; usando destaque legado: ' + err.message);
+}
+
+function mlClientInterestContext() {
+  return {
+    uf: typeof CLIENT_INTEREST_UF !== 'undefined' ? CLIENT_INTEREST_UF : (process.env.CLIENT_INTEREST_UF || process.env.UF || ''),
+    municipio: typeof CLIENT_INTEREST_MUNICIPIO !== 'undefined' ? CLIENT_INTEREST_MUNICIPIO : (process.env.CLIENT_INTEREST_MUNICIPIO || process.env.MUNICIPIO || ''),
+    casa: typeof CASA_RADAR03 !== 'undefined' ? CASA_RADAR03 : (process.env.CASA_RADAR03 || process.env.CASA || ''),
+  };
+}
+
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: EMAIL_REMETENTE, pass: EMAIL_SENHA },
@@ -702,7 +737,7 @@ async function enviarEmail(novas, alertas = []) {
     from: `"Monitor Pará" <${EMAIL_REMETENTE}>`,
     to: EMAIL_DESTINO,
     subject: assuntoEmailClienteCitado(novas, `🏛️ Pará: ${novas.length} nova(s) proposição(ões)${alertas.length ? ' | alerta sequência' : ''} — ${resumoAssunto} — ${new Date().toLocaleDateString('pt-BR')}`),
-    html,
+    html: fichaEmailButtonHtml() + html,
   });
 
   console.log(`✅ Email enviado com ${novas.length} proposições novas.`);
@@ -766,6 +801,17 @@ async function enviarEmail(novas, alertas = []) {
 
   console.log(`\n📊 Total de proposições novas encontradas: ${novas.length}`);
   const { alertas, atuais } = detectarSaltos(novas, estado);
+  if (CONTROLE03_FORCE_LATEST) {
+    const sincronizou = await sincronizarRadar03(novas, { onlyLatest: !novas.length });
+    if (!sincronizou) {
+      throw new Error('Controle 03 recusou a sincronização fora de hora');
+    }
+    estado.ultimos_por_tipo_ano = { ...(estado.ultimos_por_tipo_ano || {}), ...atuais };
+    estado.ultima_execucao = new Date().toISOString();
+    salvarEstado(estado);
+    console.log('✅ Radar 03 atualizado fora de hora com a lista atual da fonte. Email não enviado.');
+    return;
+  }
   if (process.env.DRY_RUN_EMAIL === '1' && novas.length === 0) {
     await sincronizarRadar03(novas);
     await enviarEmail([], alertas);
